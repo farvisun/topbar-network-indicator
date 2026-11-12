@@ -14,7 +14,16 @@ import {AppTraffic, parseAppSockets} from './apps.js';
 import {ConnectionMonitor} from './connectionMonitor.js';
 import {ConnectionDialog} from './connectionDialog.js';
 
-const METER_WIDTH = 360;
+const METER_WIDTH = 96;
+// While the menu and connection dialog are closed, socket (ss) and proxy
+// controller sampling slow to this many seconds. Rates stay valid (< 10 s gap)
+// and long-lived sockets keep their cumulative counters, so totals still add up.
+const BACKGROUND_SAMPLE_SECONDS = 5;
+
+// Setting identical text still invalidates layout and emits a11y events.
+function setText(actor, text) {
+    if (actor.text !== text) actor.text = text;
+}
 // Secondary text is dimmed with opacity rather than a fixed grey so it keeps
 // readable contrast against both the light and dark Shell menu styles.
 const DIM = 160;
@@ -44,9 +53,11 @@ export default class TopbarNetwork extends Extension {
         this._appError = null;
         this._activityTab = 'domains';
         this._connections = new ConnectionMonitor(this._settings, () => {
-            if (this._appsBox) this._renderApps();
+            if (this._activityTab === 'domains') this._renderApps();
             this._connectionDialog?.update();
         });
+        this._tick = 0;
+        this._physical = {key: null, names: []};
         this._previous = new Map();
         this._lastTime = 0;
         this._totals = {rx: 0, tx: 0};
@@ -152,25 +163,49 @@ export default class TopbarNetwork extends Extension {
         this._createSummary();
         this._createChart();
         this._createApps();
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._indicator.menu.addAction('Connection details & world map…',
-            () => this._openConnections(), 'mark-location-symbolic');
-        this._indicator.menu.addAction('Usage history…',
-            () => this._openPreferences('history'), 'document-open-recent-symbolic');
-        this._indicator.menu.addAction('Settings…',
-            () => this._openPreferences('network'), 'emblem-system-symbolic');
-        this._indicator.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._indicator.menu.addAction('Reset session totals', () => {
-            this._stopAppSample();
-            this._appTraffic.reset();
-            this._connections.reset();
-            this._totals = {rx: 0, tx: 0};
-            this._previous = new Map();
-            this._lastTime = 0;
-            this._sample();
-        }, 'edit-clear-history-symbolic');
+        this._createFooter([
+            {text: 'Connections', icon: 'mark-location-symbolic', accessible: 'Connection details and world map',
+                callback: () => this._openConnections()},
+            {text: 'History', icon: 'document-open-recent-symbolic', accessible: 'Usage history',
+                callback: () => this._openPreferences('history')},
+            {icon: 'edit-clear-history-symbolic', accessible: 'Reset session totals', end: true, callback: () => {
+                this._stopAppSample();
+                this._appTraffic.reset();
+                this._connections.reset();
+                this._totals = {rx: 0, tx: 0};
+                this._previous = new Map();
+                this._lastTime = 0;
+                this._sample();
+            }},
+            {icon: 'emblem-system-symbolic', accessible: 'Network settings',
+                callback: () => this._openPreferences('network')},
+        ]);
         const position = ['left', 'center', 'right'][this._settings.get_int('position')];
         Main.panel.addToStatusArea(this.uuid, this._indicator, 0, position);
+    }
+
+    // Pill buttons along the bottom edge; each closes the menu before acting.
+    _createFooter(actions) {
+        const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false,
+            style_class: 'topbar-network-section topbar-network-footer-item'});
+        const bar = new St.BoxLayout({style_class: 'topbar-network-footer', x_expand: true});
+        bar.set_text_direction(Clutter.TextDirection.LTR);
+        for (const {text, icon, callback, accessible, end = false} of actions) {
+            if (end) bar.add_child(new St.Widget({x_expand: true}));
+            const content = new St.BoxLayout({style_class: 'topbar-network-footer-content'});
+            content.add_child(new St.Icon({icon_name: icon, style_class: 'topbar-network-footer-icon'}));
+            if (text) content.add_child(new St.Label({text, style_class: 'topbar-network-footer-label',
+                y_align: Clutter.ActorAlign.CENTER}));
+            const button = new St.Button({child: content, can_focus: true, accessible_name: accessible ?? text,
+                style_class: `topbar-network-footer-button${text ? '' : ' topbar-network-footer-icon-only'}`});
+            button.connect('clicked', () => {
+                this._indicator?.menu.close();
+                callback();
+            });
+            bar.add_child(button);
+        }
+        item.add_child(bar);
+        this._indicator.menu.addMenuItem(item);
     }
 
     _openPreferences(page) {
@@ -273,23 +308,20 @@ export default class TopbarNetwork extends Extension {
         axis.add_child(this._axisStart);
         axis.add_child(this._axisEnd);
         box.add_child(axis);
+        // Fixed height and always populated: range totals at rest, the hovered
+        // interval's rates while inspecting. Hovering never resizes the menu.
         const readout = new St.BoxLayout({style_class: 'topbar-network-readout'});
         this._chartDetail = new St.Label({style_class: 'topbar-network-readout-time', x_expand: true,
             y_align: Clutter.ActorAlign.CENTER});
         this._chartDetail.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-        this._readoutUpload = new St.Label({style_class: 'topbar-network-readout-value topbar-network-upload',
+        this._readoutUpload = new St.Label({style_class: 'topbar-network-readout-value topbar-network-upload topbar-network-numeric',
             y_align: Clutter.ActorAlign.CENTER});
-        this._readoutDownload = new St.Label({style_class: 'topbar-network-readout-value topbar-network-download',
+        this._readoutDownload = new St.Label({style_class: 'topbar-network-readout-value topbar-network-download topbar-network-numeric',
             y_align: Clutter.ActorAlign.CENTER});
         readout.add_child(this._chartDetail);
         readout.add_child(this._readoutUpload);
         readout.add_child(this._readoutDownload);
         box.add_child(readout);
-        const footer = new St.BoxLayout({style_class: 'topbar-network-card-footer'});
-        footer.add_child(dim(new St.Label({text: 'Range total', style_class: 'topbar-network-caption', x_expand: true})));
-        this._chartTotals = new St.Label({style_class: 'topbar-network-caption topbar-network-numeric'});
-        footer.add_child(this._chartTotals);
-        box.add_child(footer);
         this._historyStatus = new St.Label({style_class: 'topbar-network-notice'});
         this._historyStatus.clutter_text.line_wrap = true;
         this._historyStatus.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
@@ -298,7 +330,10 @@ export default class TopbarNetwork extends Extension {
             this._connections?.setVisible(open && this._activityTab === 'domains', !!this._connectionDialog);
             if (open) {
                 this._chartSelection = -1;
-                this._renderChart();
+                // Menu content is not kept current while closed; catch up now.
+                this._sampleApps();
+                this._connections?.poll();
+                this._renderMenu();
                 this._loadChartHistory();
             }
         });
@@ -328,48 +363,76 @@ export default class TopbarNetwork extends Extension {
     }
 
     _renderChart() {
-        if (!this._chart || !this._rates)
+        if (!this._chart || !this._rates || !this._indicator?.menu.isOpen)
             return;
         const bits = this._settings.get_boolean('show-bits');
         for (const [index, button] of this._rangeButtons.entries())
             setChecked(button, index === this._chartRange);
-        this._chartData = this._chartRange ? this._savedChartData : liveChartData(
-            this._history, GLib.get_monotonic_time() / 1_000_000, Date.now() / 1000);
+        const live = this._chartRange === 0;
+        // A live chart is frozen while a point is inspected, so it does not
+        // scroll under the pointer; it resumes on leave.
+        if (!live)
+            this._chartData = this._savedChartData;
+        else if (this._chartSelection < 0 || !this._chartData)
+            this._chartData = liveChartData(this._history, GLib.get_monotonic_time() / 1_000_000, Date.now() / 1000);
         const data = this._chartData;
-        this._chartScaleLabel.text = data ? `±${formatValue(areaScale(data.points), bits)}` : '';
-        const dateText = time => new Date(time * 1000).toLocaleString(undefined,
+        setText(this._chartScaleLabel, data ? `±${formatValue(areaScale(data.points), bits)}` : '');
+        setText(this._axisStart, !data ? '' : live ? '60 s ago' : this._dateText(data.start));
+        setText(this._axisEnd, !data ? '' : live ? 'Now' : this._dateText(data.end));
+        const status = this._store?.status || data?.warning || '';
+        setText(this._historyStatus, status);
+        this._historyStatus.visible = !!status;
+        this._renderReadout();
+    }
+
+    _dateText(time) {
+        return new Date(time * 1000).toLocaleString(undefined,
             this._chartRange >= 2 ? {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'}
                 : {hour: '2-digit', minute: '2-digit', second: '2-digit'});
-        const live = this._chartRange === 0;
-        this._axisStart.text = !data ? '' : live ? '60 s ago' : dateText(data.start);
-        this._axisEnd.text = !data ? '' : live ? 'Now' : dateText(data.end);
-        this._chartTotals.text = data
-            ? `↑ ${formatValue(data.tx, false, false)}   ↓ ${formatValue(data.rx, false, false)}` : '—';
+    }
+
+    // Selection-only update: hover and arrow keys never recompute chart data.
+    _selectChart(index) {
+        if (index === this._chartSelection)
+            return;
+        const resumed = index < 0 && this._chartSelection >= 0;
+        this._chartSelection = index;
+        if (resumed) this._renderChart();
+        else this._renderReadout();
+    }
+
+    _renderReadout() {
+        if (!this._chart) return;
+        const bits = this._settings.get_boolean('show-bits');
+        const data = this._chartData;
         const point = data?.points[this._chartSelection];
         const observed = point?.duration > 0;
-        this._chartDetail.text = point ? `${dateText(point.time)}${observed ? '' : ' · No observations'}`
-            : !data ? 'Loading saved history…'
-            : data.points.some(p => p.duration) ? 'Hover or use ← → to inspect'
-            : 'No observations in this range';
-        if (point) this._chartDetail.remove_style_class_name('topbar-network-hint');
-        else this._chartDetail.add_style_class_name('topbar-network-hint');
+        let detail, up, down;
+        if (point) {
+            detail = `${this._dateText(point.time)}${observed ? '' : ' · No data'}`;
+            up = observed ? `↑ ${formatValue(point.tx, bits)}` : '↑ —';
+            down = observed ? `↓ ${formatValue(point.rx, bits)}` : '↓ —';
+        } else {
+            detail = !data ? 'Loading saved history…'
+                : data.points.some(p => p.duration) ? 'Range total' : 'No data in this range';
+            up = data ? `↑ ${formatValue(data.tx, false, false)}` : '↑ —';
+            down = data ? `↓ ${formatValue(data.rx, false, false)}` : '↓ —';
+        }
+        setText(this._chartDetail, detail);
         this._chartDetail.opacity = point ? 255 : DIM;
-        this._readoutUpload.text = observed ? `↑ ${formatValue(point.tx, bits)}` : '';
-        this._readoutDownload.text = observed ? `↓ ${formatValue(point.rx, bits)}` : '';
-        this._readoutUpload.visible = this._readoutDownload.visible = observed;
-        this._chart.accessible_name = `Traffic chart. ${this._chartDetail.text}${observed
-            ? `: upload ${this._readoutUpload.text.slice(2)}, download ${this._readoutDownload.text.slice(2)}` : ''}. Range total ${this._chartTotals.text}`;
-        this._historyStatus.text = this._store?.status || data?.warning || '';
-        this._historyStatus.visible = !!this._historyStatus.text;
-        if (this._indicator.menu.isOpen)
-            this._chart.queue_repaint();
+        setText(this._readoutUpload, up);
+        setText(this._readoutDownload, down);
+        const name = `Traffic chart. ${detail}: upload ${up.slice(2)}, download ${down.slice(2)}. ` +
+            'Hover or use the arrow keys to inspect.';
+        if (this._chart.accessible_name !== name) this._chart.accessible_name = name;
+        this._chart.queue_repaint();
     }
 
     _newChart(compact) {
         const chart = new St.DrawingArea({
             style_class: compact ? 'topbar-network-panel-plot' : 'topbar-network-plot',
             width: compact ? 64 : 360,
-            height: compact ? 24 : 160,
+            height: compact ? 24 : 124,
             reactive: !compact, can_focus: !compact, track_hover: !compact,
             y_align: Clutter.ActorAlign.CENTER,
             accessible_name: 'Traffic: upload above, download below',
@@ -392,26 +455,24 @@ export default class TopbarNetwork extends Extension {
             chart.connect('motion-event', (_actor, event) => {
                 const [x, y] = event.get_coords();
                 const [ok, localX] = chart.transform_stage_point(x, y);
-                if (ok && this._chartData) {
-                    this._chartSelection = pointAtX(localX, chart.width, this._chartData.points.length);
-                    this._renderChart();
-                }
+                if (ok && this._chartData)
+                    this._selectChart(pointAtX(localX, chart.width, this._chartData.points.length));
                 return Clutter.EVENT_PROPAGATE;
             });
             chart.connect('leave-event', () => {
-                this._chartSelection = -1;
-                this._renderChart();
+                this._selectChart(-1);
                 return Clutter.EVENT_PROPAGATE;
             });
+            chart.connect('key-focus-out', () => this._selectChart(-1));
             chart.connect('key-press-event', (_actor, event) => {
                 const key = event.get_key_symbol();
                 if (![Clutter.KEY_Left, Clutter.KEY_Right, Clutter.KEY_Home, Clutter.KEY_End].includes(key))
                     return Clutter.EVENT_PROPAGATE;
                 const count = this._chartData?.points.length ?? 0;
                 if (count) {
-                    this._chartSelection = key === Clutter.KEY_Home ? 0 : key === Clutter.KEY_End ? count - 1
-                        : Math.max(0, Math.min(count - 1, this._chartSelection + (key === Clutter.KEY_Left ? -1 : 1)));
-                    this._renderChart();
+                    const from = this._chartSelection < 0 ? count - 1 : this._chartSelection;
+                    this._selectChart(key === Clutter.KEY_Home ? 0 : key === Clutter.KEY_End ? count - 1
+                        : Math.max(0, Math.min(count - 1, from + (key === Clutter.KEY_Left ? -1 : 1))));
                 }
                 return Clutter.EVENT_STOP;
             });
@@ -446,17 +507,20 @@ export default class TopbarNetwork extends Extension {
         const box = new St.BoxLayout({orientation: Clutter.Orientation.VERTICAL, style_class: 'topbar-network-list-row'});
         const heading = new St.BoxLayout({style_class: 'topbar-network-list-heading'});
         const label = new St.Label({text: name, style_class: 'topbar-network-list-name', x_expand: true});
-        label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        label.clutter_text.ellipsize = Pango.EllipsizeMode.MIDDLE;
         heading.add_child(label);
-        heading.add_child(dim(new St.Label({text: value, style_class: 'topbar-network-list-value topbar-network-numeric'})));
+        heading.add_child(new St.Label({text: value, style_class: 'topbar-network-list-value topbar-network-numeric'}));
         box.add_child(heading);
-        const meta = dim(new St.Label({text: caption, style_class: 'topbar-network-caption'}));
-        meta.clutter_text.ellipsize = Pango.EllipsizeMode.END;
-        box.add_child(meta);
-        const track = new St.BoxLayout({style_class: 'topbar-network-meter', x_expand: true});
+        const meta = new St.BoxLayout({style_class: 'topbar-network-list-meta'});
+        const text = dim(new St.Label({text: caption, style_class: 'topbar-network-caption',
+            x_expand: true, y_align: Clutter.ActorAlign.CENTER}));
+        text.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+        meta.add_child(text);
+        const track = new St.BoxLayout({style_class: 'topbar-network-meter', y_align: Clutter.ActorAlign.CENTER});
         track.add_child(new St.Widget({style_class: 'topbar-network-meter-fill',
-            width: Math.max(4, Math.round(METER_WIDTH * ratio))}));
-        box.add_child(track);
+            width: Math.max(3, Math.round(METER_WIDTH * ratio))}));
+        meta.add_child(track);
+        box.add_child(meta);
         return box;
     }
 
@@ -467,18 +531,19 @@ export default class TopbarNetwork extends Extension {
         return label;
     }
 
+    // Rebuilding these rows allocates actors; never do it for a closed menu.
     _renderApps() {
-        if (!this._activityList) return;
+        if (!this._activityList || !this._indicator?.menu.isOpen) return;
         for (const [key, button] of this._activityButtons)
             setChecked(button, key === this._activityTab);
         const list = this._activityList;
         list.destroy_all_children();
         if (this._activityTab === 'domains') {
             const data = this._connections.snapshot(5);
-            this._activityTitle.text = 'Top destinations';
-            this._activitySubtitle.text = 'Session traffic by domain and target IP';
+            setText(this._activityTitle, 'Top destinations');
+            setText(this._activitySubtitle, 'This session, by domain and IP');
             if (!data.proxyConnected) {
-                const status = new St.Label({text: 'Proxy targets need Throne’s Clash API. Open connection details for setup.',
+                const status = new St.Label({text: 'Enable Throne’s Clash API to see proxied destinations.',
                     style_class: 'topbar-network-notice'});
                 status.clutter_text.line_wrap = true;
                 status.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
@@ -493,8 +558,8 @@ export default class TopbarNetwork extends Extension {
             }
             return;
         }
-        this._activityTitle.text = 'Top apps';
-        this._activitySubtitle.text = 'TCP socket owners · proxies include forwarded traffic';
+        setText(this._activityTitle, 'Top apps');
+        setText(this._activitySubtitle, 'This session, by TCP socket owner');
         const apps = this._appTraffic.top();
         if (this._appError || !apps.length) {
             list.add_child(this._activityNotice(this._appError ?? 'Waiting for app traffic…'));
@@ -601,15 +666,27 @@ export default class TopbarNetwork extends Extension {
     _render() {
         if (!this._indicator) return;
         this._panelChart.queue_repaint();
+        const bits = this._settings.get_boolean('show-bits');
+        const available = this._names?.length > 0 && !this._readFailed;
+        setText(this._uploadLabel, available ? `↑ ${formatPanelValue(this._rates.tx, bits)}` : '↑   —     ');
+        setText(this._downloadLabel, available ? `↓ ${formatPanelValue(this._rates.rx, bits)}` : '↓   —     ');
+        const name = available
+            ? `Network: upload ${formatValue(this._rates.tx, bits)}, download ${formatValue(this._rates.rx, bits)}`
+            : 'Network: no interface';
+        if (this._indicator.accessible_name !== name)
+            this._indicator.accessible_name = name;
+        if (this._indicator.menu.isOpen)
+            this._renderMenu();
+    }
+
+    // Everything inside the dropdown; only runs while it is visible.
+    _renderMenu() {
+        if (!this._indicator?.menu.isOpen || !this._rates) return;
         this._renderApps();
         const bits = this._settings.get_boolean('show-bits');
         const down = formatValue(this._rates.rx, bits);
         const up = formatValue(this._rates.tx, bits);
         const available = this._names?.length > 0 && !this._readFailed;
-        this._uploadLabel.text = available ? `↑ ${formatPanelValue(this._rates.tx, bits)}` : '↑   —     ';
-        this._downloadLabel.text = available ? `↓ ${formatPanelValue(this._rates.rx, bits)}` : '↓   —     ';
-        this._indicator.accessible_name = available
-            ? `Network: upload ${up}, download ${down}` : 'Network: no interface';
         const requested = this._settings.get_string('interface').trim();
         this._interfaceLabel.text = this._readFailed ? 'Statistics unavailable'
             : available ? this._names.join(', ')
@@ -638,8 +715,13 @@ export default class TopbarNetwork extends Extension {
         if (requested)
             return counters.has(requested) ? [requested] : [];
         const names = [...counters.keys()];
-        const physical = names.filter(name =>
-            Gio.File.new_for_path(`/sys/class/net/${name}/device`).query_exists(null));
+        // Probe sysfs only when the interface set changes, not on every tick.
+        const key = names.join(',');
+        if (this._physical.key !== key) {
+            this._physical = {key, names: names.filter(name =>
+                Gio.File.new_for_path(`/sys/class/net/${name}/device`).query_exists(null))};
+        }
+        const physical = this._physical.names;
         if (physical.length)
             return physical;
         // For virtual machines and systems with no physical network device,
@@ -670,8 +752,14 @@ export default class TopbarNetwork extends Extension {
     }
 
     _sample() {
-        this._sampleApps();
-        this._connections.poll();
+        const visible = this._indicator?.menu.isOpen || this._connectionDialog;
+        const every = Math.max(1, Math.round(BACKGROUND_SAMPLE_SECONDS /
+            Math.max(1, this._settings.get_int('refresh-interval'))));
+        if (visible || this._tick % every === 0) {
+            this._sampleApps();
+            this._connections.poll();
+        }
+        this._tick++;
         try {
             const current = parseCounters(readText('/proc/net/dev'));
             const names = this._selectInterfaces(current);
@@ -765,7 +853,6 @@ export default class TopbarNetwork extends Extension {
         this._chartUpload = null;
         this._chartDownload = null;
         this._chartDetail = null;
-        this._chartTotals = null;
         this._historyStatus = null;
         this._axisStart = null;
         this._axisEnd = null;

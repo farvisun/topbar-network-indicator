@@ -30,6 +30,8 @@ jobs:
         run: |
           version=$(python3 -c "import json; print(json.load(open('metadata.json'))['version-name'])")
           test "$RELEASE_TAG" = "v$version" || { echo "Tag $RELEASE_TAG does not match version-name $version"; exit 1; }
+      - name: Compile settings schema (strict)
+        run: glib-compile-schemas --strict schemas
       - name: Test
         env:
           GSETTINGS_BACKEND: memory

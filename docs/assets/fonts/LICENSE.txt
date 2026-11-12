@@ -1,0 +1,3 @@
+Bricolage Grotesque, Hanken Grotesk and JetBrains Mono are licensed under the
+SIL Open Font License 1.1 (https://openfontlicense.org). Latin subsets are
+self-hosted here so the project page makes no third-party requests.

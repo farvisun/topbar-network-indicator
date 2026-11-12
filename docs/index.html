@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topbar Network — live traffic for the GNOME Shell top bar</title>
+<meta name="description" content="A GNOME Shell 50 extension with a live mirrored traffic chart, up to a year of local history, top apps and destinations, and an offline world map. No telemetry, no root.">
+<meta name="theme-color" content="#080b11">
+<link rel="canonical" href="https://farvisun.github.io/topbar-network-indicator/">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Topbar Network — live traffic for the GNOME Shell top bar">
+<meta property="og:description" content="Live mirrored traffic chart, saved history, top apps and destinations, and an offline world map. Private by design.">
+<meta property="og:url" content="https://farvisun.github.io/topbar-network-indicator/">
+<meta property="og:image" content="https://farvisun.github.io/topbar-network-indicator/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d121b'/%3E%3Cpath d='M6 15v-4h3v4zM11 15V7h3v8zM16 15V9h3v6zM21 15v-3h3v3z' fill='%23faa647'/%3E%3Cpath d='M6 17h3v3H6zM11 17h3v7h-3zM16 17h3v5h-3zM21 17h3v8h-3z' fill='%2361b0fa'/%3E%3C/svg%3E">
+<link rel="preload" href="assets/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face{font-family:"Bricolage Grotesque";src:url(assets/fonts/bricolage-grotesque.woff2) format("woff2");font-weight:500 800;font-display:swap}
+@font-face{font-family:"Hanken Grotesk";src:url(assets/fonts/hanken-grotesk.woff2) format("woff2");font-weight:400 700;font-display:swap}
+@font-face{font-family:"JetBrains Mono";src:url(assets/fonts/jetbrains-mono.woff2) format("woff2");font-weight:400 500;font-display:swap}
+
+:root{
+  --bg:#080b11; --bg2:#0c1018; --surface:#0f141d; --surface2:#141b27;
+  --line:rgba(255,255,255,.08); --line2:rgba(255,255,255,.14);
+  --text:#e9eef6; --muted:#93a0b4; --faint:#667388;
+  --up:#faa647; --down:#61b0fa; --ok:#4cc38a;
+  --display:"Bricolage Grotesque","Hanken Grotesk",system-ui,sans-serif;
+  --body:"Hanken Grotesk",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --wrap:1160px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:84px}
+body{margin:0;background:var(--bg);color:var(--text);font:400 17px/1.6 var(--body);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+img{max-width:100%;height:auto;display:block}
+a{color:inherit}
+.wrap{width:min(var(--wrap),100% - 40px);margin-inline:auto}
+:focus-visible{outline:2px solid var(--down);outline-offset:3px;border-radius:6px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--text);color:var(--bg);padding:8px 14px;border-radius:8px;z-index:100}
+.skip:focus{left:12px}
+
+/* ambient glow */
+body::before{content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(900px 520px at 78% -8%,rgba(250,166,71,.13),transparent 60%),
+    radial-gradient(900px 640px at 100% 30%,rgba(97,176,250,.10),transparent 60%),
+    radial-gradient(700px 500px at -10% 40%,rgba(97,176,250,.05),transparent 60%)}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:rgba(8,11,17,.72);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;gap:28px;height:64px}
+.brand{display:flex;align-items:center;gap:10px;text-decoration:none;font:700 18px/1 var(--display);letter-spacing:-.01em}
+.brand svg{width:28px;height:28px}
+.nav nav{display:flex;gap:26px;margin-left:auto}
+.nav nav a{color:var(--muted);text-decoration:none;font-size:15px;font-weight:500;transition:color .2s}
+.nav nav a:hover{color:var(--text)}
+.btn{display:inline-flex;align-items:center;gap:9px;padding:11px 20px;border-radius:12px;font:600 15px/1 var(--body);text-decoration:none;border:1px solid var(--line2);color:var(--text);background:rgba(255,255,255,.03);transition:background .2s,border-color .2s,transform .2s}
+.btn:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.24)}
+.btn svg{width:17px;height:17px;flex:none}
+.btn.primary{background:linear-gradient(135deg,var(--up),#f08a2a);color:#1b1206;border-color:transparent;box-shadow:0 8px 28px -8px rgba(250,166,71,.55)}
+.btn.primary:hover{transform:translateY(-1px);background:linear-gradient(135deg,#ffb55e,#f6922f)}
+.nav .btn{padding:9px 15px;font-size:14px}
+
+/* hero */
+.hero{padding:76px 0 40px;overflow-x:clip}
+.hero .wrap{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:56px;align-items:center}
+.eyebrow{display:inline-flex;align-items:center;gap:9px;padding:6px 14px 6px 10px;border:1px solid var(--line2);border-radius:99px;font:500 13px/1 var(--mono);color:var(--muted);background:rgba(255,255,255,.03)}
+.eyebrow i{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px rgba(76,195,138,.18)}
+h1{font:800 clamp(42px,6.4vw,76px)/1.02 var(--display);letter-spacing:-.035em;margin:22px 0 0}
+h1 .up{color:var(--up)} h1 .down{color:var(--down)}
+.lead{font-size:clamp(18px,2vw,21px);color:var(--muted);max-width:34em;margin:22px 0 0}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:34px}
+.install-chip{display:flex;align-items:center;gap:12px;margin-top:22px;max-width:100%;padding:10px 10px 10px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font:400 13.5px/1.4 var(--mono);color:var(--muted)}
+.install-chip code{white-space:normal;overflow-wrap:anywhere;flex:1;min-width:0}
+.install-chip b{color:var(--text);font-weight:500}
+.copy{flex:none;font:600 12px/1 var(--body);padding:8px 12px;border-radius:8px;border:1px solid var(--line2);background:rgba(255,255,255,.04);color:var(--text);cursor:pointer;transition:background .2s}
+.copy:hover{background:rgba(255,255,255,.09)}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:26px;padding:0;list-style:none;color:var(--faint);font-size:14px}
+.facts li{display:flex;align-items:center;gap:8px}
+.facts li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--faint)}
+
+/* hero visual: fake top bar + real screenshot */
+.stage{position:relative;justify-self:center;width:min(430px,100%)}
+.stage::before{content:"";position:absolute;inset:8% -12% -4%;background:radial-gradient(closest-side,rgba(97,176,250,.22),transparent 70%);filter:blur(30px);z-index:-1}
+.bar{display:flex;align-items:center;justify-content:flex-end;gap:14px;height:38px;padding:0 14px;background:#000;border-radius:16px 16px 0 0;border:1px solid var(--line);border-bottom:0}
+.bar .dot{width:5px;height:5px;border-radius:50%;background:#555;margin-right:auto}
+.pill{display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;background:#1c1f26;font:500 9.5px/1.15 var(--mono);color:#e8eaee}
+.pill div{display:grid;gap:0;text-align:right}
+.pill canvas{width:64px;height:24px;display:block}
+.bar svg{width:15px;height:15px;color:#cfd5de}
+.shot{position:relative;border:1px solid var(--line);border-top:0;border-radius:0 0 22px 22px;background:#003a82;padding:14px 16px 0;overflow:hidden;max-height:610px}
+.shot::after{content:"";position:absolute;inset:auto 0 0;height:120px;background:linear-gradient(transparent,var(--bg));pointer-events:none}
+.shot img{border-radius:20px;box-shadow:0 30px 70px -10px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.06);margin-inline:auto;width:100%}
+
+/* sections */
+section{padding:92px 0}
+.kicker{font:500 13px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--up)}
+h2{font:700 clamp(30px,4.2vw,46px)/1.08 var(--display);letter-spacing:-.025em;margin:14px 0 0;max-width:20em}
+.sub{color:var(--muted);max-width:38em;margin:16px 0 0;font-size:18px}
+.head{margin-bottom:48px}
+
+/* interactive demo */
+.demo{border:1px solid var(--line);border-radius:24px;background:linear-gradient(180deg,var(--surface),var(--bg2));padding:clamp(18px,3vw,32px);box-shadow:0 40px 90px -40px rgba(0,0,0,.8)}
+.demo-top{display:flex;flex-wrap:wrap;align-items:center;gap:14px 26px;margin-bottom:18px}
+.legend{display:flex;gap:20px;font-size:14px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:8px}
+.legend i{width:10px;height:10px;border-radius:3px}
+.readout{margin-left:auto;display:flex;gap:22px;font:500 14px/1 var(--mono);flex-wrap:wrap}
+.readout .t{color:var(--faint)}
+.readout .u{color:var(--up)} .readout .d{color:var(--down)}
+.demo canvas{display:block;width:100%;height:300px;border-radius:14px;cursor:crosshair;touch-action:pan-y}
+.demo-foot{display:flex;justify-content:space-between;margin-top:12px;color:var(--faint);font:400 12.5px/1 var(--mono)}
+.demo-note{margin:18px 0 0;color:var(--faint);font-size:14px}
+
+/* features */
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.card{position:relative;padding:28px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.012));transition:border-color .25s,transform .25s}
+.card:hover{border-color:var(--line2);transform:translateY(-2px)}
+.ico{width:44px;height:44px;display:grid;place-items:center;border-radius:12px;background:rgba(97,176,250,.1);border:1px solid rgba(97,176,250,.2);color:var(--down);margin-bottom:20px}
+.card:nth-child(3n+2) .ico{background:rgba(250,166,71,.1);border-color:rgba(250,166,71,.22);color:var(--up)}
+.ico svg{width:22px;height:22px}
+.card h3{font:700 20px/1.2 var(--display);letter-spacing:-.01em;margin:0 0 10px}
+.card p{margin:0;color:var(--muted);font-size:16px}
+
+/* numbers */
+.numbers{padding:0}
+.numbers .wrap{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:22px;background:var(--surface);overflow:hidden}
+.num{padding:30px 26px;border-left:1px solid var(--line)}
+.num:first-child{border-left:0}
+.num b{display:block;font:700 clamp(30px,3.6vw,44px)/1 var(--display);letter-spacing:-.03em}
+.num span{display:block;margin-top:10px;color:var(--muted);font-size:15px}
+
+/* screenshots */
+.shots{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:22px}
+figure{margin:0;display:flex;flex-direction:column;gap:14px}
+figure .frame{border:1px solid var(--line);border-radius:20px;background:var(--surface);padding:14px;overflow:hidden;flex:1}
+figure img{border-radius:12px;width:100%}
+figcaption{color:var(--muted);font-size:15px;padding:0 4px}
+figcaption b{display:block;color:var(--text);font:700 17px/1.3 var(--display);margin-bottom:3px}
+.s-drop{grid-column:span 2}.s-hist{grid-column:span 4}.s-map{grid-column:span 6}.s-set{grid-column:span 3}
+.s-drop .frame{background:#003a82;display:grid;place-items:center}
+.s-map,.s-set{grid-column:span 3}
+.seg{display:inline-flex;margin-top:24px;padding:4px;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+.seg button{font:600 14px/1 var(--body);color:var(--muted);background:none;border:0;padding:9px 18px;border-radius:9px;cursor:pointer;transition:background .2s,color .2s}
+.seg button.on{background:rgba(255,255,255,.09);color:var(--text)}
+
+/* privacy */
+.privacy{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.panel{padding:30px;border:1px solid var(--line);border-radius:20px;background:var(--surface)}
+.panel h3{margin:0 0 18px;font:700 20px/1.2 var(--display);display:flex;align-items:center;gap:12px}
+.tag{font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;padding:6px 9px;border-radius:7px}
+.tag.local{color:var(--ok);background:rgba(76,195,138,.12)}
+.tag.opt{color:var(--up);background:rgba(250,166,71,.12)}
+.panel ul{margin:0;padding:0;list-style:none;display:grid;gap:14px}
+.panel li{display:grid;grid-template-columns:22px 1fr;gap:12px;color:var(--muted);font-size:16px}
+.panel li svg{width:20px;height:20px;margin-top:2px;color:var(--ok)}
+.panel.opt li svg{color:var(--up)}
+.panel li b{color:var(--text);font-weight:600}
+code.inline,.panel code,.faq code{font:400 .88em var(--mono);background:rgba(255,255,255,.07);padding:.12em .42em;border-radius:6px;color:var(--text)}
+
+/* install */
+.steps{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;counter-reset:s}
+.step{min-width:0;padding:28px;border:1px solid var(--line);border-radius:20px;background:var(--surface);counter-increment:s;display:flex;flex-direction:column;gap:14px}
+.step::before{content:counter(s);width:34px;height:34px;display:grid;place-items:center;border-radius:10px;font:700 16px/1 var(--display);background:rgba(250,166,71,.12);color:var(--up);border:1px solid rgba(250,166,71,.25)}
+.step h3{margin:0;font:700 19px/1.25 var(--display)}
+.step p{margin:0;color:var(--muted);font-size:16px}
+.code{position:relative;margin-top:auto;padding:14px 16px;border-radius:12px;background:#070a0f;border:1px solid var(--line);font:400 13px/1.55 var(--mono);color:#b9c4d6;overflow-x:auto;white-space:pre}
+.code .c{color:var(--faint)}
+.req{margin-top:22px;color:var(--faint);font-size:15px}
+
+/* faq */
+.faq{display:grid;gap:12px;max-width:820px}
+details{border:1px solid var(--line);border-radius:16px;background:var(--surface);padding:0 22px;transition:border-color .2s}
+details[open]{border-color:var(--line2)}
+summary{cursor:pointer;list-style:none;padding:20px 0;font:600 18px/1.35 var(--display);display:flex;justify-content:space-between;gap:20px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font:400 26px/1 var(--body);color:var(--muted);transition:transform .25s}
+details[open] summary::after{transform:rotate(45deg)}
+details p{margin:0 0 20px;color:var(--muted);font-size:16.5px}
+
+/* footer */
+footer{border-top:1px solid var(--line);padding:44px 0 60px;color:var(--faint);font-size:14.5px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:20px 40px;justify-content:space-between;align-items:center}
+footer nav{display:flex;gap:22px;flex-wrap:wrap}
+footer a{color:var(--muted);text-decoration:none}footer a:hover{color:var(--text)}
+
+/* reveal */
+.rv{opacity:0;transform:translateY(16px);transition:opacity .7s cubic-bezier(.22,1,.36,1),transform .7s cubic-bezier(.22,1,.36,1)}
+.rv.in{opacity:1;transform:none}
+.no-js .rv{opacity:1;transform:none}
+
+@media (max-width:980px){
+  .hero .wrap{grid-template-columns:1fr;gap:48px}
+  .grid,.steps{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .privacy{grid-template-columns:minmax(0,1fr)}
+  .numbers .wrap{grid-template-columns:1fr 1fr}.num:nth-child(3){border-left:0}.num:nth-child(n+3){border-top:1px solid var(--line)}
+  .s-drop,.s-hist,.s-set,.s-map{grid-column:span 6}
+  .s-drop .frame{padding:14px 0}.s-drop img{max-width:340px}
+  .nav nav{display:none}.nav .btn{margin-left:auto}
+}
+@media (max-width:640px){
+  body{font-size:16px}
+  section{padding:68px 0}.hero{padding:44px 0 20px}
+  .grid,.steps{grid-template-columns:minmax(0,1fr)}
+  .demo canvas{height:220px}.readout{margin-left:0}
+  .install-chip{font-size:12px}
+  .num{padding:22px 18px}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .rv{opacity:1;transform:none;transition:none}
+  .card,.btn{transition:none}
+}
+</style>
+</head>
+<body class="no-js">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Topbar Network home">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0d121b" stroke="rgba(255,255,255,.12)"/><path d="M6 15v-4h3v4zM11 15V7h3v8zM16 15V9h3v6zM21 15v-3h3v3z" fill="#faa647"/><path d="M6 17h3v3H6zM11 17h3v7h-3zM16 17h3v5h-3zM21 17h3v8h-3z" fill="#61b0fa"/></svg>
+      Topbar Network
+    </a>
+    <nav aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#screenshots">Screenshots</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#install">Install</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <a class="btn" href="https://github.com/farvisun/topbar-network-indicator">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<main id="main">
+<!-- ───────── Hero ───────── -->
+<div class="hero" id="top">
+  <div class="wrap">
+    <div>
+      <span class="eyebrow"><i></i>GNOME Shell 50 extension</span>
+      <h1>Your network,<br>at a <span class="up">glance</span><span class="down">.</span></h1>
+      <p class="lead">Live upload and download in the top bar, a mirrored traffic chart in the dropdown, up to a year of local history, and a world map of where your connections go. Private by design.</p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/farvisun/topbar-network-indicator/releases/latest">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v8m0 0L4.5 6.5M8 10l3.5-3.5M2.5 13.5h11"/></svg>
+          Download latest release
+        </a>
+        <a class="btn" href="#install">Install guide</a>
+      </div>
+      <div class="install-chip" role="group" aria-label="Install command">
+        <code id="cmd"><b>$</b> gnome-extensions install --force topbar-network@farvisun.local.shell-extension.zip</code>
+        <button class="copy" type="button" data-copy="gnome-extensions install --force topbar-network@farvisun.local.shell-extension.zip">Copy</button>
+      </div>
+      <ul class="facts">
+        <li>MIT licensed</li><li>No telemetry</li><li>No root needed</li><li>No background service</li>
+      </ul>
+    </div>
+
+    <div class="stage" aria-label="Screenshot of the Topbar Network dropdown">
+      <div class="bar" aria-hidden="true">
+        <span class="dot"></span>
+        <div class="pill"><div><span id="pillUp">↑ 57 kB/s</span><span id="pillDown">↓ 230 kB/s</span></div><canvas id="pillChart" width="128" height="48"></canvas></div>
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 5h2.5L8 2v12L4.5 11H2zM10.5 5.5a3.5 3.5 0 0 1 0 5l-.8-.8a2.4 2.4 0 0 0 0-3.4z"/></svg>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 1.8v5.4M4.7 3.8a5 5 0 1 0 6.6 0"/></svg>
+      </div>
+      <div class="shot"><img src="assets/dropdown.png" width="424" height="1031" alt="The dropdown shows upload and download speed tiles, a live throughput chart with a hover readout, the top destinations and quick actions."></div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────── Numbers ───────── -->
+<section class="numbers" aria-label="At a glance" style="padding-top:36px">
+  <div class="wrap rv">
+    <div class="num"><b>60 s</b><span>live view, refreshed every second</span></div>
+    <div class="num"><b>1 year</b><span>of local history, minute resolution</span></div>
+    <div class="num"><b>5</b><span>busiest apps and destinations</span></div>
+    <div class="num"><b>0</b><span>telemetry, accounts or background services</span></div>
+  </div>
+</section>
+
+<!-- ───────── Demo ───────── -->
+<section id="demo">
+  <div class="wrap">
+    <div class="head rv">
+      <div class="kicker">Mirrored by design</div>
+      <h2>Upload above. Download below.</h2>
+      <p class="sub">One shared scale, one centre line, and gaps wherever nothing was observed. Sleep, failed reads and interface changes never turn into fake spikes. Try the chart below with synthetic traffic.</p>
+    </div>
+    <div class="demo rv">
+      <div class="demo-top">
+        <div class="legend"><span><i style="background:var(--up)"></i>Upload</span><span><i style="background:var(--down)"></i>Download</span></div>
+        <div class="readout" aria-live="off"><span class="t" id="rTime">Hover to inspect</span><span class="u" id="rUp"></span><span class="d" id="rDown"></span></div>
+      </div>
+      <canvas id="demoChart" role="img" aria-label="Interactive demo of the mirrored traffic chart using synthetic data"></canvas>
+      <div class="demo-foot"><span>60 s ago</span><span id="scaleLbl">±2.0 MB/s</span><span>Now</span></div>
+      <p class="demo-note">Demo data is generated in your browser. The real extension reads <code class="inline">/proc/net/dev</code> on your machine.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── Features ───────── -->
+<section id="features">
+  <div class="wrap">
+    <div class="head rv">
+      <div class="kicker">Features</div>
+      <h2>Everything your network is doing, none of the noise.</h2>
+      <p class="sub">Built for people who keep an eye on bandwidth, VPNs and proxies, and want answers without a heavyweight monitoring stack.</p>
+    </div>
+    <div class="grid">
+      <article class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h3l2-6 4 12 3-9 2 3h4"/></svg></div>
+        <h3>Stable top-bar indicator</h3>
+        <p>Stacked speeds beside a ten-bar chart. Numbers and units use fixed monospace widths, so the panel never jitters as speeds change.</p>
+      </article>
+      <article class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12c3 0 3-6 6-6s3 12 6 12 3-6 6-6"/><path d="M3 12h18" opacity=".4"/></svg></div>
+        <h3>Live &amp; historical charts</h3>
+        <p>Switch between Live, 1H, 24H and 7D. Hover or use the arrow keys to read exact rates and timestamps for any interval.</p>
+      </article>
+      <article class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg></div>
+        <h3>Saved history &amp; CSV export</h3>
+        <p>Browse days, weeks, months or any custom range with totals for each. Keep 7 days to a year, and export the selection as CSV.</p>
+      </article>
+      <article class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></div>
+        <h3>Top apps &amp; destinations</h3>
+        <p>See which processes and domains moved the most data this session, with live rates and relative bars. No root required.</p>
+      </article>
+      <article class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg></div>
+        <h3>Offline world map</h3>
+        <p>A searchable list and map of where connections go, with approximate country locations. The map is bundled, so no tiles are requested.</p>
+      </article>
+      <article class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></div>
+        <h3>Proxy &amp; VPN aware</h3>
+        <p>Pick the interface that matters, or let Automatic avoid double counting. Connect a Throne / Clash API to see real targets behind a proxy.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── Screenshots ───────── -->
+<section id="screenshots">
+  <div class="wrap">
+    <div class="head rv">
+      <div class="kicker">Screenshots</div>
+      <h2>Native to GNOME. Calm in light and dark.</h2>
+      <p class="sub">The dropdown follows your system accent colour, and the settings are plain libadwaita. All screenshots use synthetic data.</p>
+      <div class="seg" role="group" aria-label="Screenshot theme"><button type="button" class="on" data-theme="dark" aria-pressed="true">Dark</button><button type="button" data-theme="light" aria-pressed="false">Light</button></div>
+    </div>
+    <div class="shots">
+      <figure class="s-drop rv">
+        <div class="frame"><img src="assets/dropdown.png" width="424" height="1031" loading="lazy" alt="Full dropdown with speed tiles, throughput chart, top destinations and actions"></div>
+        <figcaption><b>The dropdown</b>Speeds, live chart and top destinations in one place.</figcaption>
+      </figure>
+      <figure class="s-hist rv">
+        <div class="frame"><img class="themed" data-name="history" src="assets/history-dark.png" width="760" height="985" loading="lazy" alt="History page with uploaded, downloaded and total cards and a day chart"></div>
+        <figcaption><b>History</b>Day, week, month and custom ranges with totals, inspection and CSV export.</figcaption>
+      </figure>
+      <figure class="s-set rv">
+        <div class="frame"><img class="themed" data-name="settings" src="assets/settings-dark.png" width="760" height="930" loading="lazy" alt="Settings window with grouped top bar, monitoring, proxy and privacy options"></div>
+        <figcaption><b>Settings</b>Grouped options, a real interface picker and clear privacy switches.</figcaption>
+      </figure>
+      <figure class="s-set rv">
+        <div class="frame"><img src="assets/map.png" width="868" height="720" loading="lazy" alt="Connection details window with an offline world map, search field and destination list"></div>
+        <figcaption><b>Connection details &amp; world map</b>Search destinations, then inspect IPs, apps, routes and rates.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── Privacy ───────── -->
+<section id="privacy">
+  <div class="wrap">
+    <div class="head rv">
+      <div class="kicker">Privacy</div>
+      <h2>Your traffic stays on your machine.</h2>
+      <p class="sub">A network monitor should not phone home. This one has no telemetry, no accounts and no background service, and its two optional lookups are off with one switch each.</p>
+    </div>
+    <div class="privacy">
+      <div class="panel rv">
+        <h3>Always local <span class="tag local">on device</span></h3>
+        <ul>
+          <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10.5 4 4 8-9"/></svg><span><b>Counters</b> are read from <code>/proc/net/dev</code> and <code>ss</code>. No packets are captured.</span></li>
+          <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10.5 4 4 8-9"/></svg><span><b>History</b> is stored as daily JSON in <code>~/.local/share/topbar-network</code>. Never uploaded.</span></li>
+          <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10.5 4 4 8-9"/></svg><span><b>The map</b> is bundled Natural Earth data. No tiles, no CDN.</span></li>
+          <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 10.5 4 4 8-9"/></svg><span><b>Proxy secret</b> lives in a mode <code>0600</code> file, outside GSettings, and only goes to a loopback address.</span></li>
+        </ul>
+      </div>
+      <div class="panel opt rv">
+        <h3>Optional lookups <span class="tag opt">you control</span></h3>
+        <ul>
+          <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4.5l3 1.5"/></svg><span><b>Country &amp; map locations</b> query <code>ipwho.is</code> over HTTPS for <em>public</em> IPs only, while destinations are on screen. Domain names are never sent.</span></li>
+          <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4.5l3 1.5"/></svg><span><b>Destination names</b> use your system DNS resolver and are labelled “DNS estimate”.</span></li>
+          <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4.5l3 1.5"/></svg><span><b>Rate-limited</b>: serial, throttled and capped per day. Private, loopback and fake-IP addresses are never sent.</span></li>
+          <li><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4.5l3 1.5"/></svg><span><b>Switch either off</b> in Settings and the requests stop. Everything else keeps working.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────── Install ───────── -->
+<section id="install">
+  <div class="wrap">
+    <div class="head rv">
+      <div class="kicker">Install</div>
+      <h2>Up and running in a minute.</h2>
+      <p class="sub">Install the release zip with the standard GNOME tooling. You can also use Extension Manager.</p>
+    </div>
+    <div class="steps">
+      <div class="step rv">
+        <h3>Download the release</h3>
+        <p>Grab <code>topbar-network@farvisun.local.shell-extension.zip</code> from the latest release.</p>
+        <div class="code"><span class="c"># or build it yourself</span>
+git clone https://github.com/farvisun/\
+  topbar-network-indicator
+cd topbar-network-indicator
+./build.sh</div>
+      </div>
+      <div class="step rv">
+        <h3>Install the extension</h3>
+        <p>Run this from the folder that contains the zip.</p>
+        <div class="code">gnome-extensions install --force \
+  topbar-network@farvisun.local.shell-extension.zip</div>
+      </div>
+      <div class="step rv">
+        <h3>Log out, then enable</h3>
+        <p>GNOME 50 loads new extensions at login. After signing back in:</p>
+        <div class="code">gnome-extensions enable \
+  topbar-network@farvisun.local
+gnome-extensions prefs \
+  topbar-network@farvisun.local</div>
+      </div>
+    </div>
+    <p class="req">Requires GNOME Shell 50 and <code class="inline">ss</code> from iproute2 (preinstalled on most distributions) for the app ranking. No root access is requested.</p>
+  </div>
+</section>
+
+<!-- ───────── FAQ ───────── -->
+<section id="faq">
+  <div class="wrap">
+    <div class="head rv">
+      <div class="kicker">FAQ</div>
+      <h2>Good questions.</h2>
+    </div>
+    <div class="faq rv">
+      <details><summary>Which GNOME versions are supported?</summary><p>GNOME Shell 50. Extensions are tied to the Shell’s JavaScript APIs, so other versions are not declared in <code>metadata.json</code>.</p></details>
+      <details><summary>Does it count VPN or bridge traffic twice?</summary><p>Not in Automatic mode. It sums physical interfaces and ignores virtual ones. With no physical device it follows the default route. For a VPN, bridge or container, choose an interface explicitly in Settings.</p></details>
+      <details><summary>Where is my history stored, and how do I delete it?</summary><p>As versioned daily JSON under <code>~/.local/share/topbar-network/history/</code>. Use <strong>Settings → History → Clear…</strong> to delete it, and choose a retention from 7 days to a year. Disabling the extension does not delete it.</p></details>
+      <details><summary>Why do the app and interface totals differ?</summary><p>App totals come from TCP socket statistics across all interfaces, while interface totals come from the kernel’s interface counters. UDP/QUIC and connections that open and close between samples are not attributed to apps.</p></details>
+      <details><summary>Can it show the real domains behind a proxy?</summary><p>Yes, with Throne (or any sing-box / Clash-compatible controller). Enable its Clash API on a loopback address, then enter the address and optional secret in Settings. The integration is read-only.</p></details>
+      <details><summary>Why log out after installing or updating?</summary><p>GNOME Shell on Wayland caches JavaScript modules and the stylesheet for the session, so a fresh login is the reliable way to load them.</p></details>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div>© 2026 Mohammad Askari · <a href="https://github.com/farvisun/topbar-network-indicator/blob/main/LICENSE">MIT License</a></div>
+    <nav aria-label="Footer">
+      <a href="https://github.com/farvisun/topbar-network-indicator">Source</a>
+      <a href="https://github.com/farvisun/topbar-network-indicator/releases">Releases</a>
+      <a href="https://github.com/farvisun/topbar-network-indicator/issues">Issues</a>
+      <a href="https://www.naturalearthdata.com/about/terms-of-use/">Map data: Natural Earth</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+(function(){
+  document.body.classList.remove('no-js');
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var UP = [250,166,71], DOWN = [97,176,250];
+  function rgba(c,a){return 'rgba('+c[0]+','+c[1]+','+c[2]+','+a+')';}
+  function fmt(v){ // decimal bytes per second, like the extension
+    var u=['B/s','kB/s','MB/s','GB/s'],i=0; while(v>=1000&&i<3){v/=1000;i++;}
+    return (i===0||v>=100?v.toFixed(0):v.toFixed(1))+' '+u[i];
+  }
+
+  /* synthetic traffic: smooth baseline plus occasional bursts */
+  var N = 60, seed = 11;
+  function rnd(){seed=(seed*16807)%2147483647;return seed/2147483647;}
+  var series = [], burst = 0, burstAmp = 0, phase = 0;
+  function next(){
+    phase += .21;
+    if(burst<=0 && rnd()<.13){burst=4+Math.floor(rnd()*7);burstAmp=.5e6+rnd()*1.1e6;}
+    var lift=0;
+    if(burst>0){lift=burstAmp*Math.sin(Math.PI*(1-burst/11))*(.75+rnd()*.5);burst--;}
+    var rx=Math.max(9e3,190e3+110e3*Math.sin(phase)+lift+rnd()*70e3);
+    var tx=Math.max(4e3,52e3+30e3*Math.cos(phase*.8)+lift*.17+rnd()*20e3);
+    return {rx:rx,tx:tx};
+  }
+  for(var tick=0;tick<N;tick++) series.push(next());
+
+  /* copy buttons */
+  document.querySelectorAll('.copy').forEach(function(b){
+    b.addEventListener('click',function(){
+      var text=b.getAttribute('data-copy'), done=function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy';},1600);};
+      if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done,function(){});}
+      else{var r=document.createRange();r.selectNodeContents(document.getElementById('cmd'));var s=getSelection();s.removeAllRanges();s.addRange(r);done();}
+    });
+  });
+
+  /* scale like the extension: 1/2/5/10 steps */
+  function niceScale(peak){peak=Math.max(peak,1000);var p=Math.pow(10,Math.floor(Math.log10(peak)));return [1,2,5,10].filter(function(s){return s*p>=peak;})[0]*p;}
+
+  /* ── demo chart ── */
+  var demo=document.getElementById('demoChart'), dctx=demo.getContext('2d'), sel=-1;
+  var rTime=document.getElementById('rTime'), rUp=document.getElementById('rUp'), rDown=document.getElementById('rDown'), scaleLbl=document.getElementById('scaleLbl');
+  function size(c){var r=c.getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);c.width=Math.round(r.width*d);c.height=Math.round(r.height*d);return {w:c.width,h:c.height,d:d};}
+  var dsz=size(demo);
+  function curve(ctx,xs,ys){ // monotone cubic, never overshoots the centre line
+    var n=xs.length,m=[],s=[],i;
+    for(i=0;i<n-1;i++)s[i]=(ys[i+1]-ys[i])/(xs[i+1]-xs[i]);
+    m[0]=s[0];m[n-1]=s[n-2];
+    for(i=1;i<n-1;i++)m[i]=s[i-1]*s[i]<=0?0:(s[i-1]+s[i])/2;
+    for(i=0;i<n-1;i++){
+      if(!s[i]){m[i]=m[i+1]=0;continue;}
+      var a=m[i]/s[i],b=m[i+1]/s[i],h=a*a+b*b;
+      if(h>9){var t=3/Math.sqrt(h);m[i]=t*a*s[i];m[i+1]=t*b*s[i];}
+    }
+    for(i=0;i<n-1;i++){var dx=(xs[i+1]-xs[i])/3;ctx.bezierCurveTo(xs[i]+dx,ys[i]+m[i]*dx,xs[i+1]-dx,ys[i+1]-m[i+1]*dx,xs[i+1],ys[i+1]);}
+  }
+  function drawArea(){
+    var c=demo,ctx=dctx,W=dsz.w,H=dsz.h,d=dsz.d;
+    ctx.clearRect(0,0,W,H);
+    var pad=1*d, r=14*d, cy=H/2, amp=H/2-14*d;
+    var peak=series.reduce(function(m,p){return Math.max(m,p.rx,p.tx);},0), scale=niceScale(peak);
+    scaleLbl.textContent='±'+fmt(scale);
+    ctx.save();
+    ctx.beginPath();ctx.roundRect(pad,pad,W-2*pad,H-2*pad,r);
+    ctx.fillStyle='rgba(255,255,255,.025)';ctx.fill();
+    ctx.strokeStyle='rgba(255,255,255,.1)';ctx.lineWidth=d;ctx.stroke();ctx.clip();
+    ctx.setLineDash([2*d,5*d]);ctx.strokeStyle='rgba(255,255,255,.1)';ctx.beginPath();
+    [-1,-.5,.5,1].forEach(function(f){var y=Math.round(cy+f*amp)+.5;ctx.moveTo(0,y);ctx.lineTo(W,y);});
+    for(var q=1;q<4;q++){var x=Math.round(W*q/4)+.5;ctx.moveTo(x,0);ctx.lineTo(x,H);}
+    ctx.stroke();ctx.setLineDash([]);
+    var slot=W/N;
+    if(sel>=0){ctx.fillStyle='rgba(255,255,255,.05)';ctx.fillRect(sel*slot,0,slot,H);}
+    [['tx',UP,-1],['rx',DOWN,1]].forEach(function(s){
+      var key=s[0],col=s[1],dir=s[2],xs=[0],ys=[cy+dir*amp*series[0][key]/scale];
+      series.forEach(function(p,i){xs.push((i+.5)*slot);ys.push(cy+dir*amp*p[key]/scale);});
+      xs.push(W);ys.push(ys[ys.length-1]);
+      var peakY=dir<0?Math.min.apply(null,ys):Math.max.apply(null,ys),g=ctx.createLinearGradient(0,peakY,0,cy);
+      g.addColorStop(0,rgba(col,.42));g.addColorStop(1,rgba(col,.04));
+      ctx.beginPath();ctx.moveTo(xs[0],cy);ctx.lineTo(xs[0],ys[0]);curve(ctx,xs,ys);ctx.lineTo(xs[xs.length-1],cy);ctx.closePath();ctx.fillStyle=g;ctx.fill();
+      ctx.beginPath();ctx.moveTo(xs[0],ys[0]);curve(ctx,xs,ys);ctx.strokeStyle=rgba(col,1);ctx.lineWidth=2*d;ctx.lineJoin=ctx.lineCap='round';ctx.stroke();
+    });
+    ctx.strokeStyle='rgba(255,255,255,.28)';ctx.lineWidth=d;ctx.beginPath();ctx.moveTo(0,cy+.5);ctx.lineTo(W,cy+.5);ctx.stroke();
+    if(sel>=0){
+      var x=Math.round((sel+.5)*slot)+.5;
+      ctx.setLineDash([4*d,4*d]);ctx.strokeStyle='rgba(255,255,255,.45)';ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();ctx.setLineDash([]);
+      [['tx',UP,-1],['rx',DOWN,1]].forEach(function(s){
+        var y=cy+s[2]*amp*series[sel][s[0]]/scale;
+        ctx.fillStyle=rgba(s[1],.25);ctx.beginPath();ctx.arc(x,y,9*d,0,6.3);ctx.fill();
+        ctx.fillStyle=rgba(s[1],1);ctx.beginPath();ctx.arc(x,y,4.5*d,0,6.3);ctx.fill();
+      });
+    }
+    ctx.restore();
+    if(sel>=0){
+      var secs=N-sel; rTime.textContent=secs+' s ago';
+      rUp.textContent='↑ '+fmt(series[sel].tx);rDown.textContent='↓ '+fmt(series[sel].rx);
+    }else{rTime.textContent='Hover to inspect';rUp.textContent='';rDown.textContent='';}
+  }
+  function pick(e){
+    var r=demo.getBoundingClientRect(),x=(e.touches?e.touches[0].clientX:e.clientX)-r.left;
+    sel=Math.max(0,Math.min(N-1,Math.floor(x/r.width*N)));drawArea();
+  }
+  demo.addEventListener('mousemove',pick);
+  demo.addEventListener('touchstart',pick,{passive:true});demo.addEventListener('touchmove',pick,{passive:true});
+  demo.addEventListener('mouseleave',function(){sel=-1;drawArea();});
+  addEventListener('resize',function(){dsz=size(demo);drawArea();});
+  drawArea();
+
+  /* ── hero pill: ten six-second bars ── */
+  var pill=document.getElementById('pillChart'), pctx=pill.getContext('2d');
+  var pU=document.getElementById('pillUp'), pD=document.getElementById('pillDown');
+  function pad(s){return (' '+s).slice(-3);}
+  function drawPill(){
+    var W=pill.width,H=pill.height,cy=H/2,amp=H/2-3;pctx.clearRect(0,0,W,H);
+    pctx.fillStyle='rgba(128,128,128,.14)';pctx.fillRect(2,2,W-4,H-4);
+    var bars=[];for(var b=0;b<10;b++){var rx=0,tx=0;for(var k=0;k<6;k++){var p=series[b*6+k];rx+=p.rx/6;tx+=p.tx/6;}bars.push([rx,tx]);}
+    var peak=bars.reduce(function(m,v){return Math.max(m,v[0],v[1]);},1000),slot=(W-4)/10;
+    bars.forEach(function(v,i){
+      var x=2+i*slot+1,w=slot-2;
+      pctx.fillStyle=rgba(UP,1);pctx.fillRect(x,cy-amp*v[1]/peak,w,amp*v[1]/peak);
+      pctx.fillStyle=rgba(DOWN,1);pctx.fillRect(x,cy,w,amp*v[0]/peak);
+    });
+    pctx.fillStyle='rgba(170,170,170,.7)';pctx.fillRect(2,cy,W-4,1);
+    var last=series[series.length-1];pU.textContent='↑ '+fmt(last.tx);pD.textContent='↓ '+fmt(last.rx);
+  }
+  drawPill();
+
+  /* advance both charts once a second; static for reduced motion */
+  if(!reduce){
+    setInterval(function(){
+      if(document.hidden)return;
+      series.shift();series.push(next());
+      if(sel>=0&&sel>0)sel--; // keep the inspected point under the cursor's data
+      drawArea();drawPill();
+    },1000);
+  }
+
+  /* screenshot theme toggle */
+  var themeBtns=document.querySelectorAll('.seg button');
+  themeBtns.forEach(function(btn){btn.addEventListener('click',function(){
+    var t=btn.getAttribute('data-theme');
+    themeBtns.forEach(function(o){var on=o===btn;o.classList.toggle('on',on);o.setAttribute('aria-pressed',on);});
+    document.querySelectorAll('img.themed').forEach(function(img){img.src='assets/'+img.getAttribute('data-name')+'-'+t+'.png';});
+  });});
+
+  /* reveal on scroll */
+  var items=document.querySelectorAll('.rv');
+  if('IntersectionObserver' in window&&!reduce){
+    var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);}});},{threshold:.12,rootMargin:'0px 0px -6% 0px'});
+    items.forEach(function(el){io.observe(el);});
+  }else{items.forEach(function(el){el.classList.add('in');});}
+})();
+</script>
+</body>
+</html>

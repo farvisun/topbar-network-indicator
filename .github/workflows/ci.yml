@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Unit checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GJS and schema tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gjs libglib2.0-dev-bin gir1.2-soup-3.0
+      - name: Compile settings schema (strict)
+        run: glib-compile-schemas --strict schemas
+      - name: Pure-logic and rendering checks
+        env:
+          GSETTINGS_BACKEND: memory
+        run: |
+          set -e
+          for t in network chart apps connections history; do gjs -m "tests/$t.js"; done
+          TZ=America/New_York gjs -m tests/history.js
+          gjs -m tests/connectionMonitor.js

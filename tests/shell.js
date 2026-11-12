@@ -114,8 +114,11 @@ export async function run() {
             return data;
         };
         extension._renderApps();
-        extension._chartSelection = 44;
+        // A selected point freezes the chart, so render live data first.
+        extension._chartSelection = -1;
+        extension._chartData = null;
         extension._render();
+        extension._selectChart(44);
         await Scripting.sleep(300);
         const stream = Gio.File.new_for_path(menuScreenshot).replace(null, false, Gio.FileCreateFlags.PRIVATE, null);
         await new Shell.Screenshot().screenshot(false, stream);

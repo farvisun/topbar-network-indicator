@@ -20,7 +20,7 @@ export function init() {
 export async function run() {
     GLib.Source.remove(startupWatchdog);
     await Scripting.sleep(2000);
-    const uuid = 'topbar-network@farvisun.local';
+    const uuid = 'topbar-network@farvisun.mindio';
     const extension = Main.extensionManager.lookup(uuid)?.stateObj;
     if (!extension || !Main.panel.statusArea[uuid])
         throw new Error('Network indicator did not load');

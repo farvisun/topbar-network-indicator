@@ -1,10 +1,11 @@
 {
-  "uuid": "topbar-network@farvisun.local",
+  "uuid": "topbar-network@farvisun.mindio",
   "name": "Topbar Network",
   "description": "Live traffic charts, network history, busiest apps and destinations, Throne/Clash proxy targets, IP and country details, and a world connection map.",
   "shell-version": [
     "50"
   ],
+  "url": "https://github.com/farvisun/topbar-network-indicator",
   "settings-schema": "org.gnome.shell.extensions.topbar-network",
-  "version": 5
+  "version-name": "6.0"
 }

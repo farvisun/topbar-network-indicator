@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.topbar-network" path="/org/gnome/shell/extensions/topbar-network/">
+    <key name="position" type="i">
+      <range min="0" max="2"/>
+      <default>2</default>
+      <summary>Panel position: left, center, right</summary>
+    </key>
+    <key name="show-bits" type="b">
+      <default>false</default>
+      <summary>Display speed in bits instead of bytes</summary>
+    </key>
+    <key name="refresh-interval" type="i">
+      <range min="1" max="5"/>
+      <default>1</default>
+      <summary>Seconds between samples</summary>
+    </key>
+    <key name="interface" type="s">
+      <default>''</default>
+      <summary>Interface name; blank selects physical interfaces automatically</summary>
+    </key>
+    <key name="proxy-controller" type="s">
+      <default>'http://127.0.0.1:9090'</default>
+      <summary>Loopback Clash API controller used to read original proxy destinations</summary>
+    </key>
+    <key name="controller-secret-generation" type="i">
+      <default>0</default>
+      <summary>Reload signal for the private controller token file</summary>
+    </key>
+    <key name="geolocation-enabled" type="b">
+      <default>true</default>
+      <summary>Look up public IP countries and approximate coordinates over HTTPS when viewing destinations</summary>
+    </key>
+    <key name="resolve-domains" type="b">
+      <default>true</default>
+      <summary>Use system DNS for reverse names and estimated IPs not reported by the proxy</summary>
+    </key>
+    <key name="history-retention" type="i">
+      <range min="7" max="365"/>
+      <default>365</default>
+      <summary>Days of network usage to retain</summary>
+    </key>
+    <key name="history-generation" type="s">
+      <default>'initial'</default>
+      <summary>Storage generation; changing it clears saved history</summary>
+    </key>
+    <key name="preferences-page" type="s">
+      <default>'network'</default>
+      <summary>Preferences page requested by the dropdown</summary>
+    </key>
+  </schema>
+</schemalist>

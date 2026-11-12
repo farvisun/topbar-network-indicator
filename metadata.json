@@ -1,0 +1,10 @@
+{
+  "uuid": "topbar-network@farvisun.local",
+  "name": "Topbar Network",
+  "description": "Live traffic charts, network history, busiest apps and destinations, Throne/Clash proxy targets, IP and country details, and a world connection map.",
+  "shell-version": [
+    "50"
+  ],
+  "settings-schema": "org.gnome.shell.extensions.topbar-network",
+  "version": 5
+}

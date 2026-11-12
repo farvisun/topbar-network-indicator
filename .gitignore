@@ -1,0 +1,22 @@
+# Build output; attach release zips to GitHub Releases instead
+dist/
+*.zip
+schemas/gschemas.compiled
+
+# Local state and secrets must never be committed
+*.token
+controller.token
+.env
+.env.*
+*.pem
+*.key
+
+# Editor / OS noise
+.vscode/
+.idea/
+*.swp
+.DS_Store
+node_modules/
+
+# Local assistant state
+.claude/

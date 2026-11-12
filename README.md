@@ -32,20 +32,26 @@
 
 ## Install
 
-You need **GNOME Shell 50**.
+You need **GNOME Shell 50**. Open a terminal and run:
 
-1. Download `topbar-network@farvisun.local.shell-extension.zip` from the [latest release](https://github.com/farvisun/topbar-network-indicator/releases/latest).
+```sh
+curl -fsSL https://farvisun.github.io/topbar-network-indicator/install.sh | bash
+```
+
+Then **log out and back in**. Your network speed appears in the top bar.
+
+The script downloads the latest release from GitHub, checks its checksum, installs it for your user only (no `sudo`) and turns it on. Run the same command again at any time to update. If you installed an earlier version (ID `topbar-network@farvisun.local`), the script replaces it and keeps your settings.
+
+<details>
+<summary><b>Install manually instead</b></summary>
+
+1. Download `topbar-network@farvisun.mindio.shell-extension.zip` from the [latest release](https://github.com/farvisun/topbar-network-indicator/releases/latest).
 2. Install it:
    ```sh
-   gnome-extensions install --force topbar-network@farvisun.local.shell-extension.zip
+   gnome-extensions install --force topbar-network@farvisun.mindio.shell-extension.zip
    ```
-3. **Log out and back in** so GNOME finds the extension.
-4. Turn it on, in the **Extensions** app or with:
-   ```sh
-   gnome-extensions enable topbar-network@farvisun.local
-   ```
-
-To update, repeat steps 1–3.
+3. Log out and back in, then turn it on in the **Extensions** app or with `gnome-extensions enable topbar-network@farvisun.mindio`.
+</details>
 
 ## Using it
 
@@ -87,7 +93,7 @@ Two optional features use the network. You can turn each one off in Settings:
 ## FAQ
 
 **The extension doesn't appear after installing.**
-Log out and back in. On Wayland, GNOME only loads new extensions at login. Check its status with `gnome-extensions info topbar-network@farvisun.local`.
+Log out and back in. On Wayland, GNOME only loads new extensions at login. Check its status with `gnome-extensions info topbar-network@farvisun.mindio`.
 
 **The speeds look wrong, or count my VPN twice.**
 By default, Topbar Network adds up your physical network cards and ignores virtual ones. If you use bridges, containers or unusual routing, choose an interface in **Settings** (list them with `ip -brief link`).
@@ -104,18 +110,18 @@ A proxy handles traffic for other apps. Connect its Clash API (see above) to see
 ## Uninstall
 
 ```sh
-gnome-extensions uninstall topbar-network@farvisun.local
+curl -fsSL https://farvisun.github.io/topbar-network-indicator/install.sh | bash -s -- --uninstall
 ```
 
-To remove saved history as well, clear it in **History** first, or delete `~/.local/share/topbar-network/`.
+Or remove it in the **Extensions** app.
 
 ## Development
 
 ```sh
-./build.sh                                  # builds dist/topbar-network@farvisun.local.shell-extension.zip
+./build.sh                                  # builds dist/topbar-network@farvisun.mindio.shell-extension.zip
 for t in network chart apps connections history connectionMonitor; do gjs -m tests/$t.js; done
 dbus-run-session -- gnome-shell-test-tool --headless \
-  --extension dist/topbar-network@farvisun.local.shell-extension.zip tests/shell.js
+  --extension dist/topbar-network@farvisun.mindio.shell-extension.zip tests/shell.js
 ```
 
 The shell test runs a private, headless GNOME Shell and never touches your desktop settings. Setting `TOPBAR_NETWORK_MENU_SCREENSHOT=file.png` saves a documentation screenshot that uses made-up traffic only. Please run the checks before opening a pull request, and never include real traffic, destinations or secrets in screenshots or bug reports.

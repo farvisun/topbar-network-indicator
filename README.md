@@ -13,7 +13,7 @@
 
 <p align="center">
   <img alt="GNOME Shell 50" src="https://img.shields.io/badge/GNOME%20Shell-50-4a86cf?logo=gnome&logoColor=white">
-  <img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green">
+  <img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-green">
   <a href="https://github.com/farvisun/topbar-network-indicator/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/farvisun/topbar-network-indicator/actions/workflows/ci.yml/badge.svg"></a>
 </p>
 
@@ -128,4 +128,4 @@ The shell test runs a private, headless GNOME Shell and never touches your deskt
 
 ## License
 
-[MIT](LICENSE) © 2026 Mohammad Askari. Map data: [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/) (public domain).
+[Apache-2.0](LICENSE). Keep the [NOTICE](NOTICE) in any copy or derivative work © 2026 Mohammad Askari. Map data: [Natural Earth](https://www.naturalearthdata.com/about/terms-of-use/) (public domain).
